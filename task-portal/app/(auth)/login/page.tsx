@@ -1,4 +1,5 @@
-// Placeholder until Phase 7 adds the login form.
+import { AuthForm } from '@/components/auth-form';
+
 export default function LoginPage() {
-  return <h1 className="text-xl font-semibold">Sign in</h1>;
+  return <AuthForm mode="login" />;
 }

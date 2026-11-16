@@ -1,4 +1,5 @@
-// Placeholder until Phase 7 adds the registration form.
+import { AuthForm } from '@/components/auth-form';
+
 export default function RegisterPage() {
-  return <h1 className="text-xl font-semibold">Create an account</h1>;
+  return <AuthForm mode="register" />;
 }

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { renderToStaticMarkup } from 'react-dom/server';
+import { renderToHtml } from '@/test/render';
 import { db } from '@/lib/db';
 import { users } from '@/lib/db/schema';
 import { SESSION_COOKIE } from '@/lib/constants';
@@ -10,6 +10,11 @@ import AuthLayout from './(auth)/layout';
 import Home from './page';
 
 vi.mock('next/headers', () => import('@/test/mock-cookies'));
+// Only useRouter is replaced (the header's logout button calls it); redirect() stays real.
+vi.mock('next/navigation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('next/navigation')>()),
+  useRouter: () => ({ replace: vi.fn(), refresh: vi.fn(), push: vi.fn() }),
+}));
 
 /** Runs a server component and returns where it redirected to, or null if it rendered. */
 async function redirectTarget(render: () => unknown): Promise<string | null> {
@@ -49,16 +54,17 @@ describe('(portal) layout: the real page-level check', () => {
   it('renders the page with the user in the header when logged in', async () => {
     await logIn();
 
-    const html = renderToStaticMarkup(await PortalLayout({ children: child }));
+    const html = renderToHtml(await PortalLayout({ children: child }));
 
     expect(html).toContain('page content');
     expect(html).toContain('Ada');
+    expect(html).toContain('Log out');
   });
 });
 
 describe('(auth) layout', () => {
   it('renders the login/register page when logged out', async () => {
-    const html = renderToStaticMarkup(await AuthLayout({ children: child }));
+    const html = renderToHtml(await AuthLayout({ children: child }));
 
     expect(html).toContain('page content');
   });
