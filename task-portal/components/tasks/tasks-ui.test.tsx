@@ -36,6 +36,7 @@ function selectedOption(html: string, name?: string): string | undefined {
 }
 
 const noop = () => {};
+const handlers = { onEdit: noop, onStatusChange: noop, onDelete: noop };
 
 afterEach(() => {
   vi.useRealTimers();
@@ -102,6 +103,18 @@ describe('TaskBoard', () => {
     expect(html).toMatch(/<button[^>]*>Retry<\/button>/);
   });
 
+  it('keeps the tasks on screen when a background refresh fails, with the error above them', async () => {
+    const client = clientWith([makeTask({ title: 'Still here' })]);
+    client.setQueryDefaults(tasksKey, { retryOnMount: false });
+    await client.prefetchQuery({ queryKey: tasksKey, queryFn: () => Promise.reject(new Error('Server down')) });
+
+    const html = renderToHtml(<TaskBoard />, client);
+
+    expect(html).toContain('Couldn&#x27;t load tasks: Server down');
+    expect(html).toContain('Still here');
+    expect(html.indexOf('Server down')).toBeLessThan(html.indexOf('Still here'));
+  });
+
   it('does not open the dialog until asked', () => {
     expect(renderToHtml(<TaskBoard />, clientWith([]))).not.toContain('<dialog');
   });
@@ -115,7 +128,7 @@ describe('TaskItem', () => {
   it('shows the title, description, priority and due date', () => {
     const task = makeTask({ title: 'Write report', description: 'Q3 numbers', priority: 'high', dueDate: '2099-01-01' });
 
-    const html = renderToHtml(<TaskItem task={task} onEdit={noop} />);
+    const html = renderToHtml(<TaskItem task={task} {...handlers} />);
 
     expect(html).toContain('Write report');
     expect(html).toContain('Q3 numbers');
@@ -124,23 +137,48 @@ describe('TaskItem', () => {
   });
 
   it('leaves out the description and due date when they are empty', () => {
-    const html = renderToHtml(<TaskItem task={makeTask()} onEdit={noop} />);
+    const html = renderToHtml(<TaskItem task={makeTask()} {...handlers} />);
 
     expect(html).not.toContain('line-clamp-2');
     expect(html).not.toContain('Due ');
   });
 
   it('strikes through finished tasks', () => {
-    expect(renderToHtml(<TaskItem task={makeTask({ status: 'done' })} onEdit={noop} />)).toContain('line-through');
-    expect(renderToHtml(<TaskItem task={makeTask({ status: 'todo' })} onEdit={noop} />)).not.toContain('line-through');
+    expect(renderToHtml(<TaskItem task={makeTask({ status: 'done' })} {...handlers} />)).toContain('line-through');
+    expect(renderToHtml(<TaskItem task={makeTask({ status: 'todo' })} {...handlers} />)).not.toContain('line-through');
   });
 
   it('has Edit and Delete buttons and a status dropdown', () => {
-    const html = renderToHtml(<TaskItem task={makeTask({ status: 'in_progress' })} onEdit={noop} />);
+    const html = renderToHtml(<TaskItem task={makeTask({ status: 'in_progress' })} {...handlers} />);
 
     expect(html).toMatch(/<button[^>]*>Edit<\/button>/);
     expect(html).toMatch(/<button[^>]*>Delete<\/button>/);
     expect(selectedOption(html)).toBe('in_progress');
+  });
+
+  it('enables the status dropdown and Delete button when nothing is pending', () => {
+    const html = renderToHtml(<TaskItem task={makeTask()} {...handlers} />);
+
+    expect(html).not.toContain('disabled=""');
+  });
+
+  it('disables the status dropdown while its change is saving', () => {
+    const html = renderToHtml(<TaskItem task={makeTask()} {...handlers} statusPending />);
+
+    expect(html).toMatch(/<select[^>]*disabled=""/);
+    expect(html).toMatch(/<button(?![^>]*disabled="")[^>]*>Delete<\/button>/);
+  });
+
+  it('disables Delete and says so while the delete is in flight', () => {
+    const html = renderToHtml(<TaskItem task={makeTask()} {...handlers} deletePending />);
+
+    expect(html).toMatch(/<button disabled=""[^>]*>Deleting…<\/button>/);
+  });
+
+  it('lets long unbroken titles and descriptions wrap (no sideways scrolling on phones)', () => {
+    const html = renderToHtml(<TaskItem task={makeTask({ description: 'x'.repeat(300) })} {...handlers} />);
+
+    expect(html.match(/wrap-break-word/g)).toHaveLength(2);
   });
 
   describe('overdue marker (uses the local date)', () => {
@@ -149,7 +187,7 @@ describe('TaskItem', () => {
       vi.useFakeTimers({ toFake: ['Date'] });
       vi.setSystemTime(new Date(2026, 5, 15, 12));
     };
-    const render = (overrides: Partial<Task>) => renderToHtml(<TaskItem task={makeTask(overrides)} onEdit={noop} />);
+    const render = (overrides: Partial<Task>) => renderToHtml(<TaskItem task={makeTask(overrides)} {...handlers} />);
 
     it('marks an unfinished task due yesterday as overdue', () => {
       setToday();
@@ -183,7 +221,7 @@ describe('TaskItem', () => {
 
 describe('StatusSelect', () => {
   it('selects the current status and offers all three', () => {
-    const html = renderToHtml(<StatusSelect id="1" status="done" />);
+    const html = renderToHtml(<StatusSelect onChange={noop} status="done" />);
 
     expect(html).toContain('aria-label="Change status"');
     expect(selectedOption(html)).toBe('done');
@@ -191,8 +229,8 @@ describe('StatusSelect', () => {
   });
 
   it('colours the badge by status', () => {
-    expect(renderToHtml(<StatusSelect id="1" status="done" />)).toContain('bg-emerald-50');
-    expect(renderToHtml(<StatusSelect id="1" status="in_progress" />)).toContain('bg-amber-50');
+    expect(renderToHtml(<StatusSelect onChange={noop} status="done" />)).toContain('bg-emerald-50');
+    expect(renderToHtml(<StatusSelect onChange={noop} status="in_progress" />)).toContain('bg-amber-50');
   });
 });
 
@@ -240,5 +278,25 @@ describe('TaskFormDialog', () => {
 
   it('uses its own validation instead of the browser popups', () => {
     expect(renderToHtml(<TaskFormDialog onClose={noop} />)).toMatch(/<form[^>]*noValidate/);
+  });
+
+  it('has a labelled ✕ close button at the top, next to the heading', () => {
+    const html = renderToHtml(<TaskFormDialog onClose={noop} />);
+
+    const close = html.match(/<button type="button"[^>]*aria-label="Close"[^>]*>(.*?)<\/button>/);
+    expect(close).not.toBeNull();
+    expect(close?.[1]).toMatch(/^<svg aria-hidden="true"/); // the icon itself is hidden from screen readers
+    expect(html.indexOf('aria-label="Close"')).toBeLessThan(html.indexOf('name="title"'));
+  });
+
+  it('is named by its heading for screen readers', () => {
+    const html = renderToHtml(<TaskFormDialog onClose={noop} />);
+
+    expect(html).toContain('aria-labelledby="task-dialog-title"');
+    expect(html).toContain('<h2 id="task-dialog-title" class="text-lg font-semibold">New task</h2>');
+  });
+
+  it('shows a visible focus ring on its inputs', () => {
+    expect(fieldTag(renderToHtml(<TaskFormDialog onClose={noop} />), 'title')).toContain('focus:ring-1');
   });
 });

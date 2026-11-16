@@ -93,7 +93,10 @@ describe('header', () => {
     expect(html).toMatch(/<button[^>]*>Log out<\/button>/);
   });
 
-  it('LogoutButton renders a plain button', () => {
-    expect(renderToHtml(<LogoutButton />)).toMatch(/^<button[^>]*>Log out<\/button>$/);
+  it('LogoutButton renders an enabled button with no error', () => {
+    const html = renderToHtml(<LogoutButton />);
+
+    expect(html).toMatch(/<button(?![^>]*disabled="")[^>]*>Log out<\/button>/);
+    expect(html).not.toContain('role="alert"');
   });
 });

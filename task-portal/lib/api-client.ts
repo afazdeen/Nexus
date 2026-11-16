@@ -19,6 +19,8 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     // A full reload is deliberate: it also throws away every cached query from the expired session.
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.href = '/login';
+    // Never settle: the page is unloading, so don't flash an error message or roll anything back meanwhile.
+    return new Promise<T>(() => {});
   }
 
   if (!res.ok) {

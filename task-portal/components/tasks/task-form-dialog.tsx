@@ -7,9 +7,11 @@ import { createTaskSchema } from '@/lib/validators';
 import { PRIORITY_LABELS, STATUS_LABELS, TASK_PRIORITIES, TASK_STATUSES } from '@/lib/constants';
 import { ApiError } from '@/lib/api-client';
 import type { Task } from '@/lib/types';
+import { CloseIcon } from './close-icon';
 
 export function TaskFormDialog({ task, onClose }: { task?: Task; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
   const create = useCreateTask();
   const update = useUpdateTask();
   const mutation = task ? update : create;
@@ -17,7 +19,13 @@ export function TaskFormDialog({ task, onClose }: { task?: Task; onClose: () => 
 
   useEffect(() => {
     ref.current?.showModal();
+    // showModal() focuses the first control (the ✕ button); start typing in the title instead.
+    titleRef.current?.focus();
   }, []);
+
+  // Always close through the native dialog: it fires onClose (which unmounts us) and the browser
+  // returns focus to the button that opened the dialog. Unmounting an open dialog would drop focus.
+  const close = () => ref.current?.close();
 
   function onSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -33,7 +41,7 @@ export function TaskFormDialog({ task, onClose }: { task?: Task; onClose: () => 
     if (!parsed.success) return setErrors(z.flattenError(parsed.error).fieldErrors);
 
     const options = {
-      onSuccess: onClose,
+      onSuccess: close,
       onError: (err: Error) => err instanceof ApiError && err.issues && setErrors(err.issues),
     };
     if (task) update.mutate({ id: task.id, ...parsed.data }, options);
@@ -42,16 +50,36 @@ export function TaskFormDialog({ task, onClose }: { task?: Task; onClose: () => 
 
   const error = mutation.error;
   const formError = error && !(error instanceof ApiError && error.issues) ? error.message : null;
-  const input = 'w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-900 focus:outline-none';
+  const input =
+    'w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-900';
+  const title = task ? 'Edit task' : 'New task';
+  const submitLabel = task ? 'Save changes' : 'Create task';
 
   return (
-    <dialog ref={ref} onClose={onClose} className="m-auto w-full max-w-md rounded-xl p-0 backdrop:bg-black/40">
+    <dialog
+      ref={ref}
+      onClose={onClose}
+      aria-labelledby="task-dialog-title"
+      className="m-auto w-[calc(100%-2rem)] max-w-md rounded-xl p-0 backdrop:bg-black/40"
+    >
       <form onSubmit={onSubmit} noValidate className="space-y-4 p-6">
-        <h2 className="text-lg font-semibold">{task ? 'Edit task' : 'New task'}</h2>
+        <div className="flex items-center justify-between gap-3">
+          <h2 id="task-dialog-title" className="text-lg font-semibold">
+            {title}
+          </h2>
+          <button
+            type="button"
+            onClick={close}
+            aria-label="Close"
+            className="-m-1 rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+          >
+            <CloseIcon />
+          </button>
+        </div>
 
         <label className="block space-y-1">
           <span className="text-sm font-medium">Title</span>
-          <input name="title" defaultValue={task?.title} autoFocus className={input} />
+          <input ref={titleRef} name="title" defaultValue={task?.title} className={input} />
           {errors.title && <span className="text-xs text-red-600">{errors.title[0]}</span>}
         </label>
 
@@ -97,7 +125,7 @@ export function TaskFormDialog({ task, onClose }: { task?: Task; onClose: () => 
         )}
 
         <div className="flex justify-end gap-2 pt-2">
-          <button type="button" onClick={onClose} className="rounded-md px-4 py-2 text-sm hover:bg-slate-100">
+          <button type="button" onClick={close} className="rounded-md px-4 py-2 text-sm hover:bg-slate-100">
             Cancel
           </button>
           <button
@@ -105,7 +133,7 @@ export function TaskFormDialog({ task, onClose }: { task?: Task; onClose: () => 
             disabled={mutation.isPending}
             className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
           >
-            {mutation.isPending ? 'Saving…' : task ? 'Save changes' : 'Create task'}
+            {mutation.isPending ? 'Saving…' : submitLabel}
           </button>
         </div>
       </form>

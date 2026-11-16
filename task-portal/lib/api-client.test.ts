@@ -79,13 +79,20 @@ describe('api', () => {
     expect(error.issues).toBeUndefined();
   });
 
-  it('sends the user to /login when a session expires mid-use', async () => {
+  it('sends the user to /login when a session expires mid-use, without surfacing an error', async () => {
     fetchMock.mockResolvedValue(jsonResponse(401, { error: 'Unauthorized' }));
 
-    const error = await caught(api('/api/tasks'));
+    // The promise never settles, so no error message flashes and no optimistic update rolls back while the page unloads.
+    const outcome = await Promise.race([
+      api('/api/tasks').then(
+        () => 'resolved',
+        () => 'rejected',
+      ),
+      new Promise((r) => setTimeout(() => r('still pending'), 50)),
+    ]);
 
     expect(location.href).toBe('/login');
-    expect(error.status).toBe(401);
+    expect(outcome).toBe('still pending');
   });
 
   it('does not redirect on a 401 from the auth endpoints (e.g. a wrong password)', async () => {

@@ -32,6 +32,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
     const schema = isRegister ? registerSchema : loginSchema;
     const parsed = schema.safeParse(values); // same rules as the server, for instant feedback
     if (!parsed.success) {
+      mutation.reset(); // drop a stale server banner (e.g. "Invalid email or password") from the last attempt
       setFieldErrors(z.flattenError(parsed.error).fieldErrors);
       return;
     }
