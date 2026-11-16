@@ -5,26 +5,14 @@ import { db } from '@/lib/db';
 import { sessions, users } from '@/lib/db/schema';
 import { SESSION_COOKIE } from '@/lib/constants';
 import { createSession, deleteSession, getCurrentUser } from '@/lib/auth/session';
+import { jar } from '@/test/mock-cookies';
 
-// next/headers only works inside a Next request, so stand in a simple cookie jar.
-type StoredCookie = { value: string; options?: Record<string, unknown> };
-const jar = vi.hoisted(() => new Map<string, StoredCookie>());
-
-vi.mock('next/headers', () => ({
-  cookies: async () => ({
-    get: (name: string) => {
-      const cookie = jar.get(name);
-      return cookie ? { name, value: cookie.value } : undefined;
-    },
-    set: (name: string, value: string, options?: Record<string, unknown>) => jar.set(name, { value, options }),
-    delete: (name: string) => jar.delete(name),
-  }),
-}));
+vi.mock('next/headers', () => import('@/test/mock-cookies'));
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function sessionCookie(): StoredCookie {
+function sessionCookie() {
   const cookie = jar.get(SESSION_COOKIE);
   if (!cookie) throw new Error('session cookie was not set');
   return cookie;
