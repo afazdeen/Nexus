@@ -1,4 +1,5 @@
-// Placeholder until Phase 8 adds the task board.
+import { TaskBoard } from '@/components/tasks/task-board';
+
 export default function TasksPage() {
-  return <h1 className="text-2xl font-semibold">My tasks</h1>;
+  return <TaskBoard />;
 }
