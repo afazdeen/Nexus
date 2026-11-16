@@ -6,16 +6,18 @@ import { STATUS_LABELS, TASK_STATUSES, type TaskStatus } from '@/lib/constants';
 import type { Task } from '@/lib/types';
 import { TaskItem } from './task-item';
 import { TaskFormDialog } from './task-form-dialog';
-import { CloseIcon } from './close-icon';
+import { CloseIcon } from '@/components/close-icon';
 
 type Filter = 'all' | TaskStatus;
+const FILTERS: Filter[] = ['all', ...TASK_STATUSES];
 
 export function TaskBoard() {
   const { data, isPending, isError, error, refetch, isFetching } = useTasks();
-  const update = useUpdateTask();
-  const del = useDeleteTask();
   const [filter, setFilter] = useState<Filter>('all');
   const [dialog, setDialog] = useState<{ open: boolean; task?: Task }>({ open: false });
+  // Both row mutations are optimistic and roll back on failure, so say what happened instead of reverting silently.
+  // Kept here, not in the row: an optimistic delete or a status change out of the filter unmounts the row.
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const tasks = useMemo(() => data ?? [], [data]);
   const counts = useMemo(() => {
@@ -25,11 +27,6 @@ export function TaskBoard() {
   }, [tasks]);
 
   const visible = filter === 'all' ? tasks : tasks.filter((t) => t.status === filter);
-
-  // Both mutations are optimistic and roll back on failure, so say what happened instead of reverting silently.
-  let actionError: string | null = null;
-  if (update.error) actionError = `Couldn't change the status: ${update.error.message}`;
-  else if (del.error) actionError = `Couldn't delete the task: ${del.error.message}`;
 
   function renderTasks() {
     if (isPending) {
@@ -54,15 +51,7 @@ export function TaskBoard() {
     return (
       <ul className="space-y-2">
         {visible.map((task) => (
-          <TaskItem
-            key={task.id}
-            task={task}
-            onEdit={() => setDialog({ open: true, task })}
-            onStatusChange={(status) => update.mutate({ id: task.id, status })}
-            onDelete={() => del.mutate(task.id)}
-            statusPending={update.isPending && update.variables?.id === task.id}
-            deletePending={del.isPending && del.variables === task.id}
-          />
+          <TaskRow key={task.id} task={task} onEdit={() => setDialog({ open: true, task })} onError={setActionError} />
         ))}
       </ul>
     );
@@ -84,7 +73,7 @@ export function TaskBoard() {
         className="flex gap-1 overflow-x-auto rounded-lg bg-white p-1 ring-1 ring-slate-200"
         aria-label="Filter by status"
       >
-        {(['all', ...TASK_STATUSES] as Filter[]).map((f) => (
+        {FILTERS.map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
@@ -105,10 +94,7 @@ export function TaskBoard() {
         >
           <span>{actionError}</span>
           <button
-            onClick={() => {
-              update.reset();
-              del.reset();
-            }}
+            onClick={() => setActionError(null)}
             aria-label="Dismiss"
             className="-m-1 shrink-0 rounded-md p-1 hover:bg-red-100"
           >
@@ -135,5 +121,23 @@ export function TaskBoard() {
 
       {dialog.open && <TaskFormDialog task={dialog.task} onClose={() => setDialog({ open: false })} />}
     </section>
+  );
+}
+
+// Each row has its own mutations: a single shared one only tracks its latest call, so changing two
+// tasks quickly would re-enable the first row early and drop its error.
+function TaskRow({ task, onEdit, onError }: { task: Task; onEdit: () => void; onError: (message: string) => void }) {
+  const update = useUpdateTask((err) => onError(`Couldn't change the status: ${err.message}`));
+  const del = useDeleteTask((err) => onError(`Couldn't delete the task: ${err.message}`));
+
+  return (
+    <TaskItem
+      task={task}
+      onEdit={onEdit}
+      onStatusChange={(status) => update.mutate({ id: task.id, status })}
+      onDelete={() => del.mutate(task.id)}
+      statusPending={update.isPending}
+      deletePending={del.isPending}
+    />
   );
 }

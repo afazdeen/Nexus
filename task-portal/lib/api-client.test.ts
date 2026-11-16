@@ -35,19 +35,32 @@ describe('api', () => {
     const result = await api('/api/tasks', { method: 'POST', body: '{"title":"T"}' });
 
     expect(result).toEqual({ task: { id: '1' } });
-    expect(fetchMock).toHaveBeenCalledWith('/api/tasks', {
-      method: 'POST',
-      body: '{"title":"T"}',
-      headers: { 'Content-Type': 'application/json' },
-    });
+    const [path, init] = fetchMock.mock.calls[0];
+    expect(path).toBe('/api/tasks');
+    expect(init).toMatchObject({ method: 'POST', body: '{"title":"T"}' });
+    expect(new Headers(init?.headers).get('Content-Type')).toBe('application/json');
   });
 
-  it('keeps headers passed by the caller', async () => {
+  it.each([
+    ['a plain object', { 'X-Test': 'yes' }],
+    ['a Headers instance', new Headers({ 'X-Test': 'yes' })],
+    ['an array of pairs', [['X-Test', 'yes']] as [string, string][]],
+  ])('keeps headers passed by the caller as %s', async (_label, headers) => {
     fetchMock.mockResolvedValue(jsonResponse(200, {}));
 
-    await api('/api/tasks', { headers: { 'X-Test': 'yes' } });
+    await api('/api/tasks', { headers });
 
-    expect(fetchMock.mock.calls[0][1]?.headers).toEqual({ 'Content-Type': 'application/json', 'X-Test': 'yes' });
+    const sent = new Headers(fetchMock.mock.calls[0][1]?.headers);
+    expect(sent.get('X-Test')).toBe('yes');
+    expect(sent.get('Content-Type')).toBe('application/json');
+  });
+
+  it("doesn't override a Content-Type set by the caller", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, {}));
+
+    await api('/api/tasks', { headers: { 'Content-Type': 'text/plain' } });
+
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('Content-Type')).toBe('text/plain');
   });
 
   it('returns undefined for 204 No Content', async () => {
@@ -75,6 +88,21 @@ describe('api', () => {
     const error = await caught(api('/api/tasks'));
 
     expect(error.status).toBe(502);
+    expect(error.message).toBe('Something went wrong');
+    expect(error.issues).toBeUndefined();
+  });
+
+  it.each([
+    ['JSON null', null],
+    ['a non-string error', { error: { code: 42 } }],
+    ['malformed issues', { error: 'Bad', issues: 'title' }],
+  ])('throws an ApiError with a generic message when the error body is %s', async (_label, body) => {
+    fetchMock.mockResolvedValue(jsonResponse(500, body));
+
+    const error = await caught(api('/api/tasks'));
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error.status).toBe(500);
     expect(error.message).toBe('Something went wrong');
     expect(error.issues).toBeUndefined();
   });

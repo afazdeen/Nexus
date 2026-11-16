@@ -108,6 +108,11 @@ describe('updateTaskSchema', () => {
     expect(updateTaskSchema.parse({ status: 'done' })).toEqual({ status: 'done' });
   });
 
+  it.each(['', '   '])('stores a blank description (%j) as null', (description) => {
+    expect(createTaskSchema.parse({ title: 'T', description }).description).toBeNull();
+    expect(updateTaskSchema.parse({ description })).toEqual({ description: null });
+  });
+
   it('lets fields be cleared with null', () => {
     expect(updateTaskSchema.parse({ description: null, dueDate: null })).toEqual({ description: null, dueDate: null });
   });

@@ -109,12 +109,13 @@ describe('GET /api/tasks', () => {
     expect(body.map((t: { title: string }) => t.title)).toEqual(['finished']);
   });
 
-  it('ignores an unknown ?status= value and returns everything', async () => {
-    await insertTask(ada, { status: 'todo' });
-    await insertTask(ada, { status: 'done' });
+  it('rejects an unknown ?status= value with 400', async () => {
     await loginAs(ada);
 
-    expect((await (await list('?status=blocked')).json()).tasks).toHaveLength(2);
+    const res = await list('?status=blocked');
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).issues).toHaveProperty('status');
   });
 });
 

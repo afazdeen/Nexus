@@ -18,7 +18,7 @@ A small internal task portal built with Next.js. A user can create an account, l
 
 ## Quick start
 
-**Requirements:** Node.js **20.9 or newer** (developed and tested on Node 24) and npm. No database server, Docker or environment variables are needed.
+**Requirements:** Node.js **22.12 or newer** and npm. `better-sqlite3` needs Node 22+, and Vitest needs 22.12+ or 24+. The app is developed and checked in CI on Node 24. No database server, Docker or environment variables are needed.
 
 ```bash
 cd task-portal
@@ -39,10 +39,13 @@ The SQLite database is created at `task-portal/data/app.db` the first time the a
 | `npm test` | Runs the test suite once (Vitest) |
 | `npm run test:watch` | Runs the tests in watch mode |
 | `npm run lint` | ESLint |
+| `npm run typecheck` | Generates Next's route types (`next typegen`), then runs `tsc --noEmit` |
 | `npm run db:generate` | Generates a SQL migration after a change to `lib/db/schema.ts` (commit the output in `drizzle/`) |
 | `npm run db:studio` | Opens Drizzle Studio to browse the database |
 
 **Optional:** set `DATABASE_PATH` to use a database file somewhere else, for example `DATABASE_PATH=/tmp/demo.db npm run dev`.
+
+**CI:** [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push to any branch. It installs with `npm ci`, then runs lint, typecheck, build and tests on Node 24. A newer push to the same branch cancels the run already in progress.
 
 **Windows note:** run `npm test` from PowerShell, cmd or the VS Code terminal. In Git Bash, a path with a lowercase drive letter such as `/c/...` triggers a Vitest bug ("failed to find the runner").
 
@@ -51,7 +54,7 @@ The SQLite database is created at `task-portal/data/app.db` the first time the a
 - **Accounts:** register, log in and log out. The task area is protected, so logged-out visitors are sent to `/login`.
 - **Tasks:**
   - Each task has a title, an optional description, a status, a priority and an optional due date.
-  - You can create, edit and delete tasks. Deleting asks for confirmation.
+  - You can create, edit and delete tasks. Deleting asks for confirmation in a modal, which starts focused on Cancel.
   - The status changes from a dropdown on each task, and the screen updates immediately.
   - Filter tabs (All / To do / In progress / Done) show live counts.
   - Unfinished tasks past their due date are marked overdue.
@@ -90,7 +93,8 @@ The SQLite database is created at `task-portal/data/app.db` the first time the a
    │  ├─ (portal)/            the protected task area (the layout checks the session)
    │  ├─ api/auth/…           register, login, logout, me
    │  ├─ api/tasks/…          list, create, update, delete
-   │  └─ error.tsx            fallback page for unexpected errors
+   │  ├─ error.tsx            fallback page for unexpected errors
+   │  └─ global-error.tsx     fallback for errors in the root layout itself
    ├─ components/             auth form, header, task board, task row, task dialog
    ├─ hooks/use-tasks.ts      TanStack Query hooks (fetching and changing tasks)
    ├─ lib/
@@ -127,7 +131,7 @@ All endpoints accept and return JSON. Errors always look like `{ "error": string
 | `POST /api/auth/login` `{ email, password }` | – | `200 { user }` + session cookie | `400`, `401` "Invalid email or password" |
 | `POST /api/auth/logout` | – | `200 { ok: true }`, cookie cleared | – |
 | `GET /api/auth/me` | ✔ | `200 { user }` | `401` |
-| `GET /api/tasks?status=` | ✔ | `200 { tasks }`, newest first; the status filter is optional | `401` |
+| `GET /api/tasks?status=` | ✔ | `200 { tasks }`, newest first; the status filter is optional | `400` unknown status, `401` |
 | `POST /api/tasks` | ✔ | `201 { task }` | `400`, `401` |
 | `PATCH /api/tasks/:id` (any subset of the fields) | ✔ | `200 { task }` | `400`, `401`, `404` |
 | `DELETE /api/tasks/:id` | ✔ | `204` | `401`, `404` |
@@ -138,7 +142,7 @@ All endpoints accept and return JSON. Errors always look like `{ "error": string
 
 - **One Next.js app.** Route Handlers are the backend, and the UI calls them through TanStack Query. I chose Route Handlers over Server Actions because the brief asks for API routes. They also give a clear JSON contract that can be tested directly, and they suit optimistic updates on the client.
 - **Pages are Server Components by default.** Only interactive pieces are Client Components: forms, the task board and the logout button. The task list loads in the browser, so a loading skeleton appears straight away.
-- **Next 16's Cache Components are left on,** as the project generator set them. Pages that depend on the session are rendered on demand. The build and dev mode raise no warnings about this setup.
+- **Next 16's Cache Components are turned off** (`cacheComponents: false` in `next.config.ts`). Every page except the root redirect depends on the session, so pages are rendered on demand for each request and there's no caching layer to reason about. The build and dev mode raise no warnings about this setup.
 
 ### Storage
 
@@ -164,12 +168,20 @@ All endpoints accept and return JSON. Errors always look like `{ "error": string
 ### Authorisation and validation
 
 - **Every task query is scoped to the logged-in user.** Ownership is checked in the same SQL statement as the update or delete. A task that belongs to someone else returns **404, not 403**, so task IDs can't be discovered.
-- **`userId` always comes from the session.** Zod drops unknown fields, so a `userId` sent in a request body is simply ignored.
+- **`userId` always comes from the session.** Zod drops unknown fields, so a `userId` sent in a request body is simply ignored. Tasks in responses do include `userId`, but it's always the caller's own ID, and the client `Task` type is derived from the database row so the two can't drift apart.
 - **The Zod schemas are shared by the server and the forms,** so the rules and messages are identical everywhere. The update schema is deliberately built **without defaults**. In Zod 4, defaults still apply inside optional fields, so a `PATCH { title }` would otherwise quietly reset the status to `todo`. This is covered by tests at both the schema and the API level.
+- **Query parameters are validated too.** `GET /api/tasks?status=` with an unknown value returns `400` instead of quietly returning every task, so a typo in a caller shows up straight away.
+- **A blank description is stored as `null`.** The schema turns an empty or spaces-only description into `null`, so "no description" has one representation in the database.
+- **Sign-up lets the database enforce unique emails.** Registration inserts with "on conflict do nothing" and returns `409` when no row was created. Checking first and inserting second would let two simultaneous sign-ups both pass the check, and the second would fail with a `500`.
 
 ### Client behaviour
 
-- **Status changes and deletes are optimistic.** The screen updates immediately and rolls back if the server rejects the change, with a banner saying what failed. Creating and editing wait for the server, because they can fail validation and the user needs to see the error in the form.
+- **Status changes and deletes are optimistic.** The screen updates immediately and rolls back if the server rejects the change, with a banner saying what failed. The banner stays until it's dismissed. Creating and editing wait for the server, because they can fail validation and the user needs to see the error in the form.
+- **Each task row owns its own mutations,** so several changes can run at once safely:
+  - Each row's control stays disabled until its own request finishes, and every failure is reported. A single mutation shared by all rows only tracks its latest call.
+  - A failure rolls back only that task, not a snapshot of the whole list, so other changes in flight survive.
+  - The list is refetched once the last pending change settles, so an early refetch can't briefly undo the others on screen.
+- **The API client doesn't trust error bodies.** Their shape is checked, so an unexpected response (a proxy's HTML page, `null`) still becomes a normal error with a generic message.
 - **Filtering happens in the browser.** The task list is small, which keeps the tab counts free. The API also supports `?status=` for when pagination is added.
 - **An expired session in mid-use** triggers a full page load of `/login`. This also clears any cached data from the old session, and no error flashes during the redirect. Logout clears the query cache as well, so the next person on the same browser never sees the previous user's tasks.
 - **The modal uses the native `<dialog>` element,** which provides the focus trap, Esc to close and the backdrop for free. Every way of closing it goes through `dialog.close()`, so the browser returns focus to the button that opened it.
@@ -183,8 +195,9 @@ All endpoints accept and return JSON. Errors always look like `{ "error": string
 | Hand-built auth instead of Auth.js or Better Auth | Small, transparent and fully tested | No OAuth, email verification or password reset out of the box |
 | `409 Email already registered` on sign-up | Clear feedback for the user | Reveals whether an email has an account. Login doesn't leak this. |
 | CSRF protection from `SameSite=Lax` plus a JSON-only API | No token plumbing | Fine for a local or internal app. A cross-site deployment would want CSRF tokens. |
-| Optimistic status changes and deletes | The app feels instant | Rollback logic is needed, and a failed change briefly showed the wrong state |
-| Native `confirm()` before deleting | No extra UI code | Plain browser look. An "undo" toast would be friendlier. |
+| Optimistic status changes and deletes | The app feels instant | Per-task rollback logic is needed, and a failed change briefly shows the wrong state |
+| One mutation per task row | Concurrent changes keep their own pending state and errors | A little more code than one shared mutation; the error banner lives in the board's state |
+| Confirmation modal before deleting (a native `<dialog>`) | Matches the app's look; the browser provides the focus trap, Esc and the backdrop | An extra click for every delete. An "undo" toast would be faster for people who delete a lot. |
 | Edits are last-write-wins | Simple | Two tabs editing the same task can overwrite each other; there's no version check |
 | Client-side filtering, no pagination | Simple, with free counts | Doesn't scale to thousands of tasks |
 | Changes made while offline are held, not rejected | TanStack Query sends them once the connection returns | While offline, the change shows as applied even though it hasn't been saved yet |
@@ -210,17 +223,17 @@ cd task-portal
 npm test
 ```
 
-There are **181 tests in 13 files**. They run in about 4 seconds against an **in-memory SQLite database**, so `data/app.db` is never touched.
+There are **193 tests in 14 files**. They run in about 4 seconds against an **in-memory SQLite database**, so `data/app.db` is never touched.
 
 | Layer | What's covered |
 |---|---|
 | Database | Migrations, WAL mode and foreign keys, defaults, the unique email constraint, cascades, timestamp precision |
 | Auth core | scrypt hashing and malformed hashes; session creation, lookup, expiry, cleanup and logout; the cookie flags |
-| Validation | Every schema rule and message; the "no defaults on update" pitfall; unknown fields being dropped |
-| API (integration) | Every Route Handler called directly: status codes, the error shape, 401s, the generic login error, ownership (404 for other users' tasks), partial updates |
+| Validation | Every schema rule and message; the "no defaults on update" pitfall; unknown fields being dropped; blank descriptions becoming `null` |
+| API (integration) | Every Route Handler called directly: status codes, the error shape, 401s, the generic login error, ownership (404 for other users' tasks), partial updates, `400` for an unknown `?status=`, two simultaneous sign-ups for one email |
 | Route protection | The proxy matcher and redirect; the portal layout rejecting missing or made-up sessions; the auth layout causing no redirect loop |
-| UI (render tests) | Loading, empty, error and loaded states; overdue logic (including just after local midnight); disabled states while pending; the dialog's fields, labels and ✕ button; the error page |
-| Client | The `api()` wrapper: errors, a 204 response, the 401 redirect that never settles |
+| UI (render tests) | Loading, empty, error and loaded states; overdue logic (including just after local midnight); disabled states while pending; the dialog's fields, labels and ✕ button; both error pages |
+| Client | The `api()` wrapper: errors, malformed error bodies, caller headers in every form, a 204 response, the 401 redirect that never settles |
 
 Several test suites were also checked by temporarily putting realistic bugs back into the code, such as removing the ownership check or leaking which emails exist, and confirming the right tests fail.
 
@@ -237,7 +250,7 @@ Those scripts aren't committed; see below.
 ## Future improvements
 
 **Testing and tooling**
-- Add Testing Library with jsdom for component interaction tests, and Playwright for committed end-to-end tests of the main flows. Run lint, type-check and tests in CI.
+- Add Testing Library with jsdom for component interaction tests, and Playwright for committed end-to-end tests of the main flows, and add both to the CI workflow.
 
 **Security and accounts**
 - Rate limiting and lockout on login and register.
@@ -248,7 +261,7 @@ Those scripts aren't committed; see below.
 **Tasks**
 - Sorting (by due date or priority), search, and pagination on the server.
 - Keep the active filter in the URL, so a filtered view can be shared or survives a refresh.
-- An undo toast instead of `confirm()` for delete, and a toast system for success and failure messages.
+- An undo toast as an alternative to the delete confirmation, and a toast system for success and failure messages.
 - Optimistic create and edit.
 - Version checks so two tabs can't silently overwrite each other's edits.
 - A Kanban board view with drag-and-drop between statuses.

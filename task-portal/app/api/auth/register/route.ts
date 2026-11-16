@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { users } from '@/lib/db/schema';
 import { hashPassword } from '@/lib/auth/password';
@@ -12,15 +11,17 @@ export async function POST(req: Request) {
   if (!parsed.success) return validationError(parsed.error);
   const { name, email, password } = parsed.data;
 
-  const existing = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).get();
-  if (existing) {
-    return NextResponse.json({ error: 'An account with this email already exists' }, { status: 409 });
-  }
-
+  // Let the unique index decide instead of checking first: two sign-ups racing for one email
+  // would both pass a check, and the second insert would then fail with a 500.
   const [user] = await db
     .insert(users)
     .values({ name, email, passwordHash: await hashPassword(password) })
+    .onConflictDoNothing({ target: users.email })
     .returning({ id: users.id, name: users.name, email: users.email });
+
+  if (!user) {
+    return NextResponse.json({ error: 'An account with this email already exists' }, { status: 409 });
+  }
 
   await createSession(user.id); // log in straight after sign-up
   return NextResponse.json({ user }, { status: 201 });

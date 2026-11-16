@@ -18,9 +18,15 @@ export const PRIORITY_LABELS: Record<TaskPriority, string> = {
 
 // Tailwind only picks up class names written out in full, so never build them from pieces.
 export const STATUS_STYLES: Record<TaskStatus, string> = {
-  todo: 'bg-slate-100 text-slate-700 ring-slate-200',
-  in_progress: 'bg-amber-50 text-amber-800 ring-amber-200',
-  done: 'bg-emerald-50 text-emerald-800 ring-emerald-200',
+  todo: 'bg-slate-100 text-slate-700 ring-slate-200 hover:bg-slate-200/70',
+  in_progress: 'bg-amber-50 text-amber-800 ring-amber-200 hover:bg-amber-100',
+  done: 'bg-emerald-50 text-emerald-800 ring-emerald-200 hover:bg-emerald-100',
+};
+
+export const STATUS_DOT_STYLES: Record<TaskStatus, string> = {
+  todo: 'bg-slate-400',
+  in_progress: 'bg-amber-500',
+  done: 'bg-emerald-500',
 };
 
 export const PRIORITY_STYLES: Record<TaskPriority, string> = {

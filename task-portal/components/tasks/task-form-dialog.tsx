@@ -7,7 +7,7 @@ import { createTaskSchema } from '@/lib/validators';
 import { PRIORITY_LABELS, STATUS_LABELS, TASK_PRIORITIES, TASK_STATUSES } from '@/lib/constants';
 import { ApiError } from '@/lib/api-client';
 import type { Task } from '@/lib/types';
-import { CloseIcon } from './close-icon';
+import { CloseIcon } from '@/components/close-icon';
 
 export function TaskFormDialog({ task, onClose }: { task?: Task; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -30,19 +30,30 @@ export function TaskFormDialog({ task, onClose }: { task?: Task; onClose: () => 
   function onSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
+    // An empty optional input means "none", which the API expects as null.
+    const optional = (name: string) => {
+      const v = f.get(name);
+      return typeof v === 'string' && v !== '' ? v : null;
+    };
     const values = {
       title: f.get('title'),
-      description: (f.get('description') as string) || null, // empty input → null
+      description: optional('description'),
       status: f.get('status'),
       priority: f.get('priority'),
-      dueDate: (f.get('dueDate') as string) || null,
+      dueDate: optional('dueDate'),
     };
     const parsed = createTaskSchema.safeParse(values);
-    if (!parsed.success) return setErrors(z.flattenError(parsed.error).fieldErrors);
+    if (!parsed.success) {
+      setErrors(z.flattenError(parsed.error).fieldErrors);
+      return;
+    }
+    setErrors({});
 
     const options = {
       onSuccess: close,
-      onError: (err: Error) => err instanceof ApiError && err.issues && setErrors(err.issues),
+      onError: (err: Error) => {
+        if (err instanceof ApiError && err.issues) setErrors(err.issues);
+      },
     };
     if (task) update.mutate({ id: task.id, ...parsed.data }, options);
     else create.mutate(parsed.data, options);
@@ -51,7 +62,12 @@ export function TaskFormDialog({ task, onClose }: { task?: Task; onClose: () => 
   const error = mutation.error;
   const formError = error && !(error instanceof ApiError && error.issues) ? error.message : null;
   const input =
-    'w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-900';
+    'w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-900 aria-[invalid=true]:border-red-500';
+  // Ties a field to its error message so screen readers announce it.
+  const errorProps = (name: string) => ({
+    'aria-invalid': !!errors[name],
+    'aria-describedby': errors[name] ? `task-${name}-error` : undefined,
+  });
   const title = task ? 'Edit task' : 'New task';
   const submitLabel = task ? 'Save changes' : 'Create task';
 
@@ -79,14 +95,28 @@ export function TaskFormDialog({ task, onClose }: { task?: Task; onClose: () => 
 
         <label className="block space-y-1">
           <span className="text-sm font-medium">Title</span>
-          <input ref={titleRef} name="title" defaultValue={task?.title} className={input} />
-          {errors.title && <span className="text-xs text-red-600">{errors.title[0]}</span>}
+          <input ref={titleRef} name="title" defaultValue={task?.title} className={input} {...errorProps('title')} />
+          {errors.title && (
+            <span id="task-title-error" className="text-xs text-red-600">
+              {errors.title[0]}
+            </span>
+          )}
         </label>
 
         <label className="block space-y-1">
           <span className="text-sm font-medium">Description</span>
-          <textarea name="description" rows={3} defaultValue={task?.description ?? ''} className={input} />
-          {errors.description && <span className="text-xs text-red-600">{errors.description[0]}</span>}
+          <textarea
+            name="description"
+            rows={3}
+            defaultValue={task?.description ?? ''}
+            className={input}
+            {...errorProps('description')}
+          />
+          {errors.description && (
+            <span id="task-description-error" className="text-xs text-red-600">
+              {errors.description[0]}
+            </span>
+          )}
         </label>
 
         <div className="grid grid-cols-2 gap-3">
@@ -114,8 +144,18 @@ export function TaskFormDialog({ task, onClose }: { task?: Task; onClose: () => 
 
         <label className="block space-y-1">
           <span className="text-sm font-medium">Due date</span>
-          <input type="date" name="dueDate" defaultValue={task?.dueDate ?? ''} className={input} />
-          {errors.dueDate && <span className="text-xs text-red-600">{errors.dueDate[0]}</span>}
+          <input
+            type="date"
+            name="dueDate"
+            defaultValue={task?.dueDate ?? ''}
+            className={input}
+            {...errorProps('dueDate')}
+          />
+          {errors.dueDate && (
+            <span id="task-dueDate-error" className="text-xs text-red-600">
+              {errors.dueDate[0]}
+            </span>
+          )}
         </label>
 
         {formError && (

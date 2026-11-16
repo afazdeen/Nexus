@@ -1,7 +1,9 @@
 'use client';
 
+import { useState } from 'react';
 import { PRIORITY_LABELS, PRIORITY_STYLES, type TaskStatus } from '@/lib/constants';
 import type { Task } from '@/lib/types';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { StatusSelect } from './status-select';
 
 type Props = {
@@ -13,9 +15,9 @@ type Props = {
   deletePending?: boolean;
 };
 
-// Presentational: the board owns the mutations, so their errors survive this row unmounting
-// (an optimistic delete, or a status change that moves the task out of the current filter).
+// Presentational: TaskRow in the board owns the mutations and reports their errors to the board.
 export function TaskItem({ task, onEdit, onStatusChange, onDelete, statusPending, deletePending }: Props) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   // Compare against the user's local date ('en-CA' formats as YYYY-MM-DD), not the UTC date from toISOString().
   const today = new Date().toLocaleDateString('en-CA');
   const overdue = task.dueDate && task.status !== 'done' && task.dueDate < today;
@@ -44,13 +46,28 @@ export function TaskItem({ task, onEdit, onStatusChange, onDelete, statusPending
           Edit
         </button>
         <button
-          onClick={() => confirm(`Delete "${task.title}"?`) && onDelete()}
+          onClick={() => setConfirmingDelete(true)}
           disabled={deletePending}
           className="rounded-md px-2 py-1 text-sm text-red-600 hover:bg-red-50 disabled:opacity-60"
         >
           {deletePending ? 'Deleting…' : 'Delete'}
         </button>
       </div>
+
+      {confirmingDelete && (
+        <ConfirmDialog
+          title="Delete task?"
+          message={
+            <>
+              <span className="font-medium text-slate-900">&ldquo;{task.title}&rdquo;</span> will be permanently
+              deleted. This can&apos;t be undone.
+            </>
+          }
+          confirmLabel="Delete"
+          onConfirm={onDelete}
+          onClose={() => setConfirmingDelete(false)}
+        />
+      )}
     </li>
   );
 }

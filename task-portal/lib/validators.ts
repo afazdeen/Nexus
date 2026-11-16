@@ -18,7 +18,13 @@ export const loginSchema = z.object({
 // so deriving the PATCH schema from one with defaults would reset omitted fields.
 const taskFields = z.object({
   title: z.string().trim().min(1, 'Title is required').max(200),
-  description: z.string().trim().max(2000).nullable(),
+  // A blank description is stored as null, never '', so "no description" has one representation.
+  description: z
+    .string()
+    .trim()
+    .max(2000)
+    .transform((v) => v || null)
+    .nullable(),
   status: z.enum(TASK_STATUSES),
   priority: z.enum(TASK_PRIORITIES),
   dueDate: z.iso.date('Use YYYY-MM-DD').nullable(),
@@ -34,6 +40,8 @@ export const createTaskSchema = taskFields.extend({
 export const updateTaskSchema = taskFields
   .partial()
   .refine((v) => Object.keys(v).length > 0, { message: 'Nothing to update' });
+
+export const taskListQuerySchema = z.object({ status: z.enum(TASK_STATUSES).optional() });
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;

@@ -12,6 +12,7 @@ import TasksPage from '@/app/(portal)/tasks/page';
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
     id: crypto.randomUUID(),
+    userId: 'user-1',
     title: 'A task',
     description: null,
     status: 'todo',
@@ -32,7 +33,8 @@ function clientWith(tasks: Task[]) {
 /** The selected <option> value inside a rendered <select name="…"> (or the only select if no name). */
 function selectedOption(html: string, name?: string): string | undefined {
   const select = name ? html.match(new RegExp(`<select[^>]*name="${name}"[^>]*>.*?</select>`))?.[0] : html;
-  return select?.match(/<option value="([^"]+)" selected=""/)?.[1];
+  const option = select?.match(/<option[^>]*selected=""[^>]*>/)?.[0];
+  return option?.match(/value="([^"]+)"/)?.[1];
 }
 
 const noop = () => {};
@@ -156,6 +158,10 @@ describe('TaskItem', () => {
     expect(selectedOption(html)).toBe('in_progress');
   });
 
+  it('does not show the delete confirmation until Delete is clicked', () => {
+    expect(renderToHtml(<TaskItem task={makeTask()} {...handlers} />)).not.toContain('<dialog');
+  });
+
   it('enables the status dropdown and Delete button when nothing is pending', () => {
     const html = renderToHtml(<TaskItem task={makeTask()} {...handlers} />);
 
@@ -231,6 +237,31 @@ describe('StatusSelect', () => {
   it('colours the badge by status', () => {
     expect(renderToHtml(<StatusSelect onChange={noop} status="done" />)).toContain('bg-emerald-50');
     expect(renderToHtml(<StatusSelect onChange={noop} status="in_progress" />)).toContain('bg-amber-50');
+  });
+
+  it('shows a status-coloured dot and its own chevron, both hidden from screen readers', () => {
+    const html = renderToHtml(<StatusSelect onChange={noop} status="in_progress" />);
+
+    expect(html).toMatch(/<span aria-hidden="true" class="[^"]*bg-amber-500/);
+    expect(html).toMatch(/<svg aria-hidden="true"/);
+    expect(html).toMatch(/<select[^>]*class="[^"]*appearance-none/); // the browser's arrow is replaced, not doubled
+  });
+
+  it('pulses the dot and shows a wait cursor while the change is saving', () => {
+    const idle = renderToHtml(<StatusSelect onChange={noop} status="todo" />);
+    const saving = renderToHtml(<StatusSelect onChange={noop} status="todo" disabled />);
+
+    expect(idle).not.toContain('animate-pulse');
+    expect(saving).toContain('animate-pulse');
+    expect(saving).toMatch(/<select[^>]*disabled=""/);
+    expect(saving).toContain('disabled:cursor-wait');
+  });
+
+  it('keeps the open list plain white and shows a focus ring for keyboard users', () => {
+    const html = renderToHtml(<StatusSelect onChange={noop} status="done" />);
+
+    expect(html.match(/<option[^>]*class="bg-white text-slate-900"/g)).toHaveLength(3);
+    expect(html).toContain('focus-visible:outline-2');
   });
 });
 

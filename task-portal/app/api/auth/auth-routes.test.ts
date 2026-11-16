@@ -65,6 +65,13 @@ describe('POST /api/auth/register', () => {
     expect(jar.has(SESSION_COOKIE)).toBe(false);
   });
 
+  it('returns 409, not 500, when two sign-ups race for the same email', async () => {
+    const statuses = (await Promise.all([register(post(ADA)), register(post(ADA))])).map((r) => r.status);
+
+    expect(statuses.sort()).toEqual([201, 409]);
+    expect(await db.select().from(users)).toHaveLength(1);
+  });
+
   it('returns 400 with field issues for invalid input, and creates nothing', async () => {
     const res = await register(post({ name: '', email: 'nope', password: 'short' }));
 

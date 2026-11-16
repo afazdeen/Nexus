@@ -14,8 +14,10 @@ export async function POST(req: Request) {
 
   const user = await db.select().from(users).where(eq(users.email, email)).get();
 
+  let ok = false;
+  if (user) ok = await verifyPassword(password, user.passwordHash);
   // Hash anyway when the user doesn't exist, so the response time doesn't reveal which emails are registered.
-  const ok = user ? await verifyPassword(password, user.passwordHash) : (await hashPassword(password), false);
+  else await hashPassword(password);
 
   if (!user || !ok) {
     return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
